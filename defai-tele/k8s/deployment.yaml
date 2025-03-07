@@ -1,0 +1,196 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: defai-backend
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: defai-backend
+  template:
+    metadata:
+      labels:
+        app: defai-backend
+    spec:
+      containers:
+      - name: backend
+        image: defai-backend:latest
+        ports:
+        - containerPort: 8000
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: defai-secrets
+              key: database-url
+        - name: REDIS_URL
+          valueFrom:
+            secretKeyRef:
+              name: defai-secrets
+              key: redis-url
+        - name: TELEGRAM_BOT_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: defai-secrets
+              key: telegram-bot-token
+        - name: ALCHEMY_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: defai-secrets
+              key: alchemy-api-key
+        - name: INFURA_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: defai-secrets
+              key: infura-api-key
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: defai-secrets
+              key: jwt-secret
+        - name: STRIPE_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: defai-secrets
+              key: stripe-secret-key
+        - name: STRIPE_WEBHOOK_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: defai-secrets
+              key: stripe-webhook-secret
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        readinessProbe:
+          httpGet:
+            path: /api/v1/health
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /api/v1/health
+            port: 8000
+          initialDelaySeconds: 15
+          periodSeconds: 20
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: defai-frontend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: defai-frontend
+  template:
+    metadata:
+      labels:
+        app: defai-frontend
+    spec:
+      containers:
+      - name: frontend
+        image: defai-frontend:latest
+        ports:
+        - containerPort: 3000
+        env:
+        - name: NEXT_PUBLIC_API_BASE_URL
+          value: "http://defai-backend-service:8000"
+        - name: NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID
+          valueFrom:
+            secretKeyRef:
+              name: defai-secrets
+              key: walletconnect-project-id
+        - name: NEXT_PUBLIC_ALCHEMY_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: defai-secrets
+              key: alchemy-api-key
+        - name: NEXT_PUBLIC_INFURA_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: defai-secrets
+              key: infura-api-key
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 3000
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 3000
+          initialDelaySeconds: 15
+          periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: defai-backend-service
+spec:
+  selector:
+    app: defai-backend
+  ports:
+  - port: 80
+    targetPort: 8000
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: defai-frontend-service
+spec:
+  selector:
+    app: defai-frontend
+  ports:
+  - port: 80
+    targetPort: 3000
+  type: LoadBalancer
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: defai-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  tls:
+  - hosts:
+    - api.defai.com
+    - app.defai.com
+    secretName: defai-tls
+  rules:
+  - host: api.defai.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: defai-backend-service
+            port:
+              number: 80
+  - host: app.defai.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: defai-frontend-service
+            port:
+              number: 80 
