@@ -2,61 +2,129 @@
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { ArrowDown, ArrowUp } from "lucide-react"
+import { ArrowUp, ArrowDown, Loader2 } from "lucide-react"
+import { useState, useEffect } from "react"
+import { getTopCryptocurrencies } from "@/lib/api"
 
-type MarketItem = {
-  name: string
-  symbol: string
-  price: number
-  change: number
-  marketCap: string
-  volume: string
+interface MarketItem {
+  id: string;
+  name: string;
+  symbol: string;
+  image: string;
+  price: number;
+  priceChange24h: number;
+  marketCap: number;
+  volume: number;
 }
 
-const marketData: MarketItem[] = [
-  {
-    name: "Bitcoin",
-    symbol: "BTC",
-    price: 42356.78,
-    change: 2.34,
-    marketCap: "$820.5B",
-    volume: "$28.9B",
-  },
-  {
-    name: "Ethereum",
-    symbol: "ETH",
-    price: 2356.42,
-    change: 3.56,
-    marketCap: "$283.2B",
-    volume: "$15.7B",
-  },
-  {
-    name: "Binance Coin",
-    symbol: "BNB",
-    price: 312.45,
-    change: -1.23,
-    marketCap: "$48.3B",
-    volume: "$2.1B",
-  },
-  {
-    name: "Solana",
-    symbol: "SOL",
-    price: 98.76,
-    change: 5.67,
-    marketCap: "$41.2B",
-    volume: "$3.5B",
-  },
-  {
-    name: "Cardano",
-    symbol: "ADA",
-    price: 0.45,
-    change: -2.45,
-    marketCap: "$15.8B",
-    volume: "$1.2B",
-  },
-]
-
 export function MarketOverview() {
+  const [marketData, setMarketData] = useState<MarketItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
+  
+  useEffect(() => {
+    const fetchMarketData = async () => {
+      setIsLoading(true);
+      setError(null);
+      
+      try {
+        const data = await getTopCryptocurrencies(5);
+        
+        if (data.length === 0) {
+          throw new Error("No market data available");
+        }
+        
+        setMarketData(data);
+      } catch (err) {
+        console.error("Error fetching market data:", err);
+        // Check if we have fallback data
+        const data = await getTopCryptocurrencies(5);
+        if (data.length > 0) {
+          setMarketData(data);
+        } else {
+          setError("Failed to fetch market data. Please try again later.");
+        }
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    fetchMarketData();
+    
+    // Refresh market data every 2 minutes
+    const refreshInterval = setInterval(async () => {
+      try {
+        const data = await getTopCryptocurrencies(5);
+        if (data.length > 0) {
+          setMarketData(data);
+        }
+      } catch (err) {
+        console.error("Error refreshing market data:", err);
+      }
+    }, 120000);
+    
+    return () => clearInterval(refreshInterval);
+  }, [retryCount]);
+  
+  // Function to retry data loading
+  const handleRetry = () => {
+    setRetryCount(prev => prev + 1);
+  };
+  
+  // Format large numbers
+  const formatCurrency = (value: number): string => {
+    if (value >= 1_000_000_000) {
+      return `$${(value / 1_000_000_000).toFixed(2)}B`;
+    } else if (value >= 1_000_000) {
+      return `$${(value / 1_000_000).toFixed(2)}M`;
+    } else if (value >= 1_000) {
+      return `$${(value / 1_000).toFixed(2)}K`;
+    }
+    return `$${value.toFixed(2)}`;
+  };
+  
+  // Show loading state
+  if (isLoading && marketData.length === 0) {
+    return (
+      <Card className="col-span-3">
+        <CardHeader>
+          <CardTitle>Market Overview</CardTitle>
+          <CardDescription>Top cryptocurrencies by market cap</CardDescription>
+        </CardHeader>
+        <CardContent className="h-[300px] flex items-center justify-center">
+          <div className="flex flex-col items-center gap-2">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            <p className="text-sm text-muted-foreground">Loading market data...</p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+  
+  // Show error state
+  if (error && marketData.length === 0) {
+    return (
+      <Card className="col-span-3">
+        <CardHeader>
+          <CardTitle>Market Overview</CardTitle>
+          <CardDescription>Top cryptocurrencies by market cap</CardDescription>
+        </CardHeader>
+        <CardContent className="h-[300px] flex items-center justify-center">
+          <div className="flex flex-col items-center gap-2 text-center px-4">
+            <p className="text-red-500">{error}</p>
+            <button 
+              onClick={handleRetry} 
+              className="text-sm text-primary hover:underline"
+            >
+              Retry
+            </button>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
     <Card className="col-span-3">
       <CardHeader>
@@ -74,12 +142,12 @@ export function MarketOverview() {
         <div className="space-y-2">
           {marketData.map((item) => (
             <div
-              key={item.symbol}
+              key={item.id}
               className="grid grid-cols-1 md:grid-cols-5 gap-4 items-center p-3 rounded-lg hover:bg-muted/50 transition-colors"
             >
               <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
-                  {item.symbol.charAt(0)}
+                <div className="w-8 h-8 rounded-full overflow-hidden">
+                  <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
                 </div>
                 <div>
                   <div className="font-medium">{item.name}</div>
@@ -90,18 +158,24 @@ export function MarketOverview() {
                 ${item.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
               <div className="text-right">
-                <Badge variant={item.change >= 0 ? "outline" : "destructive"} className="gap-1">
-                  {item.change >= 0 ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
-                  {Math.abs(item.change).toFixed(2)}%
+                <Badge variant={item.priceChange24h >= 0 ? "outline" : "destructive"} className="gap-1">
+                  {item.priceChange24h >= 0 ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
+                  {Math.abs(item.priceChange24h).toFixed(2)}%
                 </Badge>
               </div>
-              <div className="text-right hidden md:block">{item.marketCap}</div>
-              <div className="text-right hidden md:block">{item.volume}</div>
+              <div className="text-right hidden md:block">{formatCurrency(item.marketCap)}</div>
+              <div className="text-right hidden md:block">{formatCurrency(item.volume)}</div>
             </div>
           ))}
         </div>
+        <div className="mt-4 text-xs text-right text-muted-foreground">
+          <p>Data refreshes automatically every 2 minutes</p>
+          <p className="text-primary cursor-pointer hover:underline" onClick={handleRetry}>
+            Refresh Now
+          </p>
+        </div>
       </CardContent>
     </Card>
-  )
+  );
 }
 
